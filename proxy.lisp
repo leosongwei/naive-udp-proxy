@@ -123,10 +123,15 @@
                                      :local-host client-udp-ip
                                      :local-port client-port))
   (format t "listening to local user application~%")
-  ;; todo: remove this thread
-  (defparameter *client-sending-thread*
-    (sb-thread:make-thread (lambda () (loop (message-2-udp)))))
-  (loop (udp-2-message)))
+  (loop (let ((ready-sockets (usocket:wait-for-input (list *client-udp-socket*
+                                                           *client-tcp-socket*))))
+          (dolist (socket ready-sockets)
+            (cond ((usocket:stream-usocket-p socket)
+                   ;; incoming message
+                   (progn (when *debug-p* (format t "tcp msg~%"))
+                          (message-2-udp)))
+                  (t (progn (when *debug-p* (format t "udp msg~%"))
+                            (udp-2-message))))))))
 
 (defun use-client-side ()
   (clear-client-side)
