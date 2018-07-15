@@ -76,6 +76,7 @@
 (defparameter *client-udp-socket* nil)
 (defparameter *client-sending-thread* nil)
 
+;; from user application to local UDP2TCP server
 (defun udp-2-message ()
   (multiple-value-bind (buffer size user-ip user-port)
       (usocket:socket-receive *client-udp-socket* nil 65535)
@@ -88,8 +89,7 @@
               (base64:usb8-array-to-base64-string (subseq buffer 0 size)))
       (force-output *tcp-stream*))))
 
-
-
+;; TCP message from remote, parse and send it to targeted user application
 (defun message-2-udp ()
   (let ((line (read-line *tcp-stream*)))
     (format *stdout* "~A~%" line)
@@ -132,8 +132,18 @@
 (defparameter *server-stream* nil)
 (defparameter *server-connection* nil)
 
+;; sport: service port, opened at the server side, simulating different apps
+;; connecting to the server;
+;;
+;; user-id:
+;; bit [0-7, ip0] [8-15, ip1] [16-23, ip2] [24-31, ip3] [32-47, portnumber]
+;; todo: endian of portnumber?
+
+;; mapping an sport to an user-id
 (defparameter *sport-user* (make-hash-table))
+;; mapping an user-id to an sport
 (defparameter *user-sport* (make-hash-table))
+;; mapping an sport to a udp socket
 (defparameter *sport-udp* (make-hash-table))
 ;;(defparameter *server-udp-list* nil)
 
@@ -159,6 +169,13 @@
     (values a port)))
 ;; (recover-user-id (calculate-user-id "127.0.0.1" 12345))
 
+;; read tcp message from client side, parse it and send to server.
+;; before send to server, a unique UDP socket must be defined, thus the server application
+;; can determine which user application is being serviced:
+;; 1. for a new connection(unkown user-id), a new UDP socket should be established.
+;;    so do the hash table settings and send.
+;; 2. for an old connection(known user-id, found in *user-sport* hash table),
+;;    extract the UDP socket and send.
 (defun message-2-udp-server ()
   (let ((line (read-line *server-stream*)))
     (multiple-value-bind (ip-string port buffer)
@@ -179,6 +196,11 @@
         (let* ((udp-socket (gethash sport *sport-udp*)))
           (usocket:socket-send udp-socket buffer (length buffer)))))))
 
+;; receiving UDP package from server, encode it in the "IP,port,base64" format
+;; and send it to client side via the TCP connection.
+;; the IP and port describing the user application network settings in
+;; the client side network, which can be recovered from the "user-id".
+;; the user-id is obtained from the *sport-user* hash-table;
 (defun udp-2-message-server (udp-socket)
   (let* ((sport (usocket:get-local-port udp-socket))
          (user-id (gethash sport *sport-user*)))
@@ -193,18 +215,6 @@
                   user-port
                   (base64:usb8-array-to-base64-string (subseq buffer 0 size)))
           (force-output *server-stream*))))))
-
-;; (defun udp-2-message-server (udp-socket)
-;;   (multiple-value-bind (buffer size user-ip user-port)
-;;       (usocket:socket-receive udp-socket nil 65535)
-;;     (let* ((user-ip-string (format nil "~A.~A.~A.~A"
-;;                                    (aref user-ip 0) (aref user-ip 1)
-;;                                    (aref user-ip 2) (aref user-ip 3))))
-;;       (format *server-stream* "~A,~A,~A~%"
-;;               user-ip-string
-;;               user-port
-;;               (base64:usb8-array-to-base64-string (subseq buffer 0 size)))
-;;       (force-output *server-stream*))))
 
 (defun clear-server-side ()
   (defparameter *sport-user* (make-hash-table))
@@ -223,6 +233,7 @@
                           *sport-udp*)
                  result)))
 
+;; todo: properly handle any conditions.
 (defun server-side ()
   (defparameter *server-tcp-socket*
     (usocket:socket-listen *server-tcp-ip* *server-tcp-port*
