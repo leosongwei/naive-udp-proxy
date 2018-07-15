@@ -59,6 +59,7 @@
 ;; (base64:base64-string-to-usb8-array (base64:usb8-array-to-base64-string #(255 255 255)))
 ;; (base64:usb8-array-to-base64-string (subseq #(255 255 255 0 0) 0 3))
 
+(defparameter *debug-p* nil)
 (defparameter *stdout* *standard-output*)
 
 (defparameter *client-udp-ip* "127.0.0.1")
@@ -92,7 +93,7 @@
 ;; TCP message from remote, parse and send it to targeted user application
 (defun message-2-udp ()
   (let ((line (read-line *tcp-stream*)))
-    (format *stdout* "~A~%" line)
+    (when *debug-p* (format *stdout* "~A~%" line))
     (multiple-value-bind (ip-string port buffer)
         (parse-message line)
       (if ip-string
@@ -109,13 +110,20 @@
 
 
 (defun client-side (server-ip server-port client-udp-ip client-port)
+  (format t "server tcp, IP: ~A, port: ~A~%" server-ip server-port)
+  (format t "local udp, IP: ~A, port: ~A~%" client-udp-ip client-port)
+  (format t "connecting...~%")
   (defparameter *client-tcp-socket* (usocket:socket-connect server-ip server-port))
+  (format t "socket established.~%")
   (defparameter *tcp-stream* (usocket:socket-stream *client-tcp-socket*))
+  (format t "open local udp socket.~%")
   (defparameter *client-udp-socket* (usocket:socket-connect
                                      nil nil
                                      :protocol :datagram
                                      :local-host client-udp-ip
                                      :local-port client-port))
+  (format t "listening to local user application~%")
+  ;; todo: remove this thread
   (defparameter *client-sending-thread*
     (sb-thread:make-thread (lambda () (loop (message-2-udp)))))
   (loop (udp-2-message)))
@@ -253,16 +261,16 @@
 ;;       (handler-case
            (loop
               (let ((connections (get-server-connections)))
-                (format t "~A~%" connections)
+                (when *debug-p* (format t "~A~%" connections))
                 (let ((ready-sockets (usocket:wait-for-input connections
                                                              :ready-only t)))
                   (dolist (socket ready-sockets)
                     (cond ((usocket:stream-usocket-p socket)
                            ;; incoming message
-                           (progn (format t "tcp msg~%")
+                           (progn (when *debug-p* (format t "tcp msg~%"))
                                   (message-2-udp-server)))
                           (t (progn
-                               (format t "udp msg~%")
+                               (when *debug-p* (format t "udp msg~%"))
                                (udp-2-message-server socket)))))))))))
 ;;         (condition () (return-from :accepting))))))
 
