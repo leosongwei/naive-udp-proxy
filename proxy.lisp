@@ -258,21 +258,31 @@
        (format t "Connection accepted!~%")
        (defparameter *server-stream* (usocket:socket-stream *server-connection*))
 
-;;       (handler-case
-           (loop
-              (let ((connections (get-server-connections)))
-                (when *debug-p* (format t "~A~%" connections))
-                (let ((ready-sockets (usocket:wait-for-input connections
-                                                             :ready-only t)))
-                  (dolist (socket ready-sockets)
-                    (cond ((usocket:stream-usocket-p socket)
-                           ;; incoming message
-                           (progn (when *debug-p* (format t "tcp msg~%"))
-                                  (message-2-udp-server)))
-                          (t (progn
-                               (when *debug-p* (format t "udp msg~%"))
-                               (udp-2-message-server socket)))))))))))
-;;         (condition () (return-from :accepting))))))
+       (unwind-protect
+            (loop
+               (handler-case
+                   (let ((connections (get-server-connections)))
+                     (when *debug-p* (format t "~A~%" connections))
+                     (let ((ready-sockets (usocket:wait-for-input connections
+                                                                  :ready-only t)))
+                       (dolist (socket ready-sockets)
+                         (cond ((usocket:stream-usocket-p socket)
+                                ;; incoming message
+                                (progn (when *debug-p* (format t "tcp msg~%"))
+                                       (message-2-udp-server)))
+                               (t (progn
+                                    (when *debug-p* (format t "udp msg~%"))
+                                    (udp-2-message-server socket)))))))
+                 (condition () (return-from :accepting))))
+         ;; clean up
+         (let* ((udp-socket-list (let* ((result nil))
+                                   (maphash (lambda (sport socket)
+                                              sport
+                                              (push socket result))
+                                            *sport-udp*)
+                                   result)))
+           (dolist (udp-socket udp-socket-list)
+             (usocket:socket-close udp-socket)))))))
 
 ;; (progn
 ;;   (clear-server-side)
