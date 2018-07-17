@@ -103,9 +103,8 @@
                                :host (parse-ip-string ip-string))))))
 
 (defun clear-client-side ()
-  (when (and (typep *client-sending-thread* 'sb-thread:thread)
-             (sb-thread:thread-alive-p *client-sending-thread*))
-    (sb-thread:terminate-thread *client-sending-thread*))
+  (when (usocket:stream-usocket-p *client-tcp-socket*)
+    (usocket:socket-close *client-tcp-socket*))
   (when (typep *client-udp-socket* 'usocket:datagram-usocket)
     (usocket:socket-close *client-udp-socket*)))
 
@@ -148,7 +147,7 @@
          ((or usocket:connection-reset-error usocket:connection-refused-error) ()
            (format t "Connection failed, reconnect in 5 sec...~%"))
          (condition (e)
-           (progn (format t "Abort on Critical Error:~A~%")
+           (progn (format t "Abort on Critical Error:~A~%" e)
                   (return-from :connection-loop))))
        (sleep 5))))
 
@@ -244,7 +243,7 @@
                         user-port
                         (base64:usb8-array-to-base64-string (subseq buffer 0 size)))))
           (when *debug-p* (format t "send tcp msg:~A" tcp-msg))
-          (write tcp-msg :stream *server-stream*)
+          (write-string tcp-msg *server-stream*)
           (force-output *server-stream*))))))
 
 (defun clear-server-side ()
