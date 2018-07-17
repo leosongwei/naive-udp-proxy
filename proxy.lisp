@@ -1,6 +1,17 @@
 (ql:quickload 'usocket)
 (ql:quickload 'cl-base64)
 
+(defmacro mvb-let* (bindings &body body)
+  (let* ((exp (car bindings))
+         (vars (butlast exp))
+         (multi-val-exp (car (last exp)))
+         (rest-bindings (cdr bindings)))
+    (if rest-bindings
+        `(multiple-value-bind ,vars ,multi-val-exp
+           (mvb-let* ,rest-bindings ,@body))
+        `(multiple-value-bind ,vars ,multi-val-exp
+           ,@body))))
+
 (defun split-string (string split-char)
   (let* ((result nil)
          (cursor 0))
@@ -155,8 +166,6 @@
 ;; server side
 
 (defparameter *server-tcp-socket* nil)
-(defparameter *server-stream* nil)
-(defparameter *server-connection* nil)
 
 ;; sport: service port, opened at the server side, simulating different apps
 ;; connecting to the server;
@@ -171,17 +180,24 @@
 (defparameter *user-sport* (make-hash-table))
 ;; mapping an sport to a udp socket
 (defparameter *sport-udp* (make-hash-table))
-;;(defparameter *server-udp-list* nil)
+;; mapping an user-id to an tcp socket
+(defparameter *sport-tcp* (make-hash-table))
+(defparameter *tcp-list* nil)
 
-(defun calculate-user-id (ip-string port)
-  (let ((ip-bytes (parse-ip-string ip-string)))
-    (+ (ash (aref ip-bytes 0) 0)
-       (ash (aref ip-bytes 1) 8)
-       (ash (aref ip-bytes 2) 16)
-       (ash (aref ip-bytes 3) 24)
-       (ash port 32))))
+(defun calculate-user-id-part (ip-bytes port)
+  (+ (ash (aref ip-bytes 0) 0)
+     (ash (aref ip-bytes 1) 8)
+     (ash (aref ip-bytes 2) 16)
+     (ash (aref ip-bytes 3) 24)
+     (ash port 32)))
 
-(defun recover-user-id (id)
+(defun calculate-user-id (tcp-ip tcp-port udp-ip udp-port)
+  (let ((udp-id (calculate-user-id-part udp-ip udp-port))
+        (tcp-id (calculate-user-id-part tcp-ip tcp-port)))
+    (+ (ash tcp-id 48)
+       udp-id)))
+
+(defun recover-user-id-part (id)
   (let* ((a (make-array 4 :element-type '(unsigned-byte 8)))
          (port (ash id -32))
          (sum (ash port 32)))
@@ -193,7 +209,15 @@
     (incf sum (ash (aref a 1) 8))
     (setf (aref a 0) (- id sum))
     (values a port)))
-;; (recover-user-id (calculate-user-id "127.0.0.1" 12345))
+;;(recover-user-id-part (calculate-user-id-part #(127 0 0 1) 12345))
+
+(defun recover-user-id (id)
+  (mvb-let* ((client-ip client-port (recover-user-id-part (ash id -48)))
+             (user-ip user-port (recover-user-id-part (- id (ash (ash id -48) 48)))))
+    (values client-ip client-port user-ip user-port)))
+;;(recover-user-id (calculate-user-id #(8 8 8 8) 54321 #(127 0 0 1) 65432))
+
+(parse-ip-string "127.0.0.1")
 
 ;; read tcp message from client side, parse it and send to server.
 ;; before send to server, a unique UDP socket must be defined, thus the server application
@@ -202,12 +226,15 @@
 ;;    so do the hash table settings and send.
 ;; 2. for an old connection(known user-id, found in *user-sport* hash table),
 ;;    extract the UDP socket and send.
-(defun message-2-udp-server ()
-  (let ((line (read-line *server-stream*)))
+(defun message-2-udp-server (tcp-socket)
+  (let* ((line (read-line (usocket:socket-stream tcp-socket)))
+         (client-ip (usocket:get-peer-address tcp-socket))
+         (client-port (usocket:get-peer-port tcp-socket)))
     (when *debug-p* (format t "tcp msg received:~A~%" line))
-    (multiple-value-bind (ip-string port buffer)
+    (multiple-value-bind (user-ip-string user-port buffer)
         (parse-message line)
-      (let* ((user-id (calculate-user-id ip-string port));;(format nil "~A,~A" ip-string port))
+      (let* ((user-id (calculate-user-id client-ip client-port
+                                         (parse-ip-string user-ip-string) user-port))
              (sport (gethash user-id *user-sport*)))
         (if (not sport)
             ;; new connection
@@ -216,6 +243,7 @@
                    (port (usocket:get-local-port udp-socket)))
               (setf (gethash port *sport-udp*) udp-socket)
               (setf (gethash port *sport-user*) user-id)
+              (setf (gethash port *sport-tcp*) tcp-socket)
               (setf (gethash user-id *user-sport*) port)
               (setf sport port))
             ;; old connection
@@ -231,31 +259,39 @@
 (defun udp-2-message-server (udp-socket)
   (let* ((sport (usocket:get-local-port udp-socket))
          (user-id (gethash sport *sport-user*)))
-    (multiple-value-bind (addr user-port) (recover-user-id user-id)
+    (multiple-value-bind (tcp-ip tcp-port user-ip user-port) (recover-user-id user-id)
+      tcp-ip tcp-port ;;supress warning
       (multiple-value-bind (buffer size)
           (usocket:socket-receive udp-socket nil 65535)
         (let* ((user-ip-string (format nil "~A.~A.~A.~A"
-                                       (aref addr 0) (aref addr 1)
-                                       (aref addr 2) (aref addr 3)))
+                                       (aref user-ip 0) (aref user-ip 1)
+                                       (aref user-ip 2) (aref user-ip 3)))
                (tcp-msg
                 (format nil "~A,~A,~A~%"
                         user-ip-string
                         user-port
-                        (base64:usb8-array-to-base64-string (subseq buffer 0 size)))))
+                        (base64:usb8-array-to-base64-string (subseq buffer 0 size))))
+               (tcp-socket (gethash sport *sport-tcp*))
+               (tcp-stream (usocket:socket-stream tcp-socket)))
           (when *debug-p* (format t "send tcp msg:~A" tcp-msg))
-          (write-string tcp-msg *server-stream*)
-          (force-output *server-stream*))))))
+          (write-string tcp-msg tcp-stream)
+          (force-output tcp-stream))))))
 
 (defun clear-server-side ()
   (defparameter *sport-user* (make-hash-table))
   (defparameter *user-sport* (make-hash-table))
   (defparameter *sport-udp* (make-hash-table))
+  (defparameter *sport-tcp* (make-hash-table))
+  (dolist (socket *tcp-list*)
+    (usocket:socket-close socket))
+  (defparameter *tcp-list* nil)
   (when (usocket:usocket-p *server-tcp-socket*)
     (usocket:socket-close *server-tcp-socket*)))
 
 (defun get-server-connections ()
   (concatenate 'list
-               `(,*server-connection*)
+               `(,*server-tcp-socket*)
+               *tcp-list*
                (let* ((result nil))
                  (maphash (lambda (sport socket)
                             sport
@@ -268,22 +304,15 @@
   (defparameter *server-tcp-socket*
     (usocket:socket-listen *server-tcp-ip* *server-tcp-port*
                            :reuse-address t))
-  (format t "server tcp: ~A:~A~%" (usocket:get-local-address *server-tcp-socket*)
+  (format t "server tcp: ~A:~A~%"
+          (usocket:get-local-address *server-tcp-socket*)
           (usocket:get-local-port *server-tcp-socket*))
   (loop
      (block :accepting
        (defparameter *sport-user* (make-hash-table))
        (defparameter *user-sport* (make-hash-table))
        (defparameter *sport-udp* (make-hash-table))
-
-       (format t "Waiting for connection...~%")
-       (defparameter *server-connection*
-         (usocket:socket-accept *server-tcp-socket*))
-       (format t "Connection accepted!~%")
-       (defparameter *server-stream* (usocket:socket-stream *server-connection*))
-       (format t "Client: ~A:~A~%"
-               (usocket:get-peer-address *server-connection*)
-               (usocket:get-peer-port *server-connection*))
+       (defparameter *sport-tcp* (make-hash-table))
        (unwind-protect
             (loop
                (handler-case
@@ -292,10 +321,18 @@
                      (let ((ready-sockets (usocket:wait-for-input connections
                                                                   :ready-only t)))
                        (dolist (socket ready-sockets)
-                         (cond ((usocket:stream-usocket-p socket)
-                                ;; incoming message
+                         (cond ((usocket:stream-server-usocket-p socket)
+                                ;; incoming client connection
+                                (let ((new-socket (usocket:socket-accept socket)))
+                                  (push new-socket *tcp-list*)
+                                  (when *debug-p*
+                                    (progn (format t "Connection Accepted:~A:~A~%"
+                                                   (usocket:get-peer-address new-socket)
+                                                   (usocket:get-peer-port new-socket))))))
+                               ;; incoming message
+                               ((usocket:stream-usocket-p socket)
                                 (progn (when *debug-p* (format t "tcp msg~%"))
-                                       (message-2-udp-server)))
+                                       (message-2-udp-server socket)))
                                (t (progn
                                     (when *debug-p* (format t "udp msg~%"))
                                     (udp-2-message-server socket)))))))
