@@ -136,17 +136,21 @@
                             (udp-2-message))))))))
 
 (defun use-client-side ()
-  (loop
-     (handler-case
-         (progn
-           (clear-client-side)
-           (client-side *server-tcp-ip* *server-tcp-port*
-                        *client-udp-ip* *client-udp-port*))
-       (end-of-file ()
-         (format t "EOF error, server may be closed now, reconnect in 5 sec..."))
-       ((or usocket:connection-reset-error usocket:connection-refused-error) ()
-           (format t "Connection failed, reconnect in 5 sec...")))
-     (sleep 5)))
+  (block :connection-loop
+    (loop
+       (handler-case
+           (progn
+             (clear-client-side)
+             (client-side *server-tcp-ip* *server-tcp-port*
+                          *client-udp-ip* *client-udp-port*))
+         (end-of-file ()
+           (format t "EOF error, server may be closed now, reconnect in 5 sec...~%"))
+         ((or usocket:connection-reset-error usocket:connection-refused-error) ()
+           (format t "Connection failed, reconnect in 5 sec...~%"))
+         (condition (e)
+           (progn (format t "Abort on Critical Error:~A~%")
+                  (return-from :connection-loop))))
+       (sleep 5))))
 
 ;; --------------------------------------------------
 ;; server side
