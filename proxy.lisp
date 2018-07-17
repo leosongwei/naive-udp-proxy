@@ -333,7 +333,17 @@
                                ;; incoming message
                                ((usocket:stream-usocket-p socket)
                                 (progn (when *debug-p* (format t "tcp msg~%"))
-                                       (message-2-udp-server socket)))
+                                       ;; detect if dead
+                                       (let* ((tcp-stream (usocket:socket-stream socket))
+                                              (ch (read-char-no-hang tcp-stream nil :eof)))
+                                         (if (eq :eof ch)
+                                             ;; remove socket from list
+                                             (setf *tcp-list* (remove-if (lambda (s)
+                                                                           (eq socket s))
+                                                                         *tcp-list*))
+                                             ;; unread char
+                                             (progn (unread-char ch tcp-stream)
+                                                    (message-2-udp-server socket))))))
                                (t (progn
                                     (when *debug-p* (format t "udp msg~%"))
                                     (udp-2-message-server socket)))))))
