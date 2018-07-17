@@ -124,7 +124,8 @@
                                      :local-port client-port))
   (format t "listening to local user application~%")
   (loop (let ((ready-sockets (usocket:wait-for-input (list *client-udp-socket*
-                                                           *client-tcp-socket*))))
+                                                           *client-tcp-socket*)
+                                                     :ready-only t)))
           (dolist (socket ready-sockets)
             (cond ((usocket:stream-usocket-p socket)
                    ;; incoming message
@@ -229,8 +230,8 @@
                         user-ip-string
                         user-port
                         (base64:usb8-array-to-base64-string (subseq buffer 0 size)))))
-          (when *debug-p* (format t *server-stream*))
-          (format *server-stream* tcp-msg)
+          (when *debug-p* (format t "~A" tcp-msg))
+          (write tcp-msg :stream *server-stream*)
           (force-output *server-stream*))))))
 
 (defun clear-server-side ()
@@ -255,6 +256,8 @@
   (defparameter *server-tcp-socket*
     (usocket:socket-listen *server-tcp-ip* *server-tcp-port*
                            :reuse-address t))
+  (format t "server tcp: ~A:~A~%" (usocket:get-local-address *server-tcp-socket*)
+          (usocket:get-local-port *server-tcp-socket*))
   (loop
      (block :accepting
        (defparameter *sport-user* (make-hash-table))
@@ -271,7 +274,7 @@
                (usocket:get-peer-port *server-connection*))
        (unwind-protect
             (loop
-               (handler-case
+;;               (handler-case
                    (let ((connections (get-server-connections)))
                      (when *debug-p* (format t "~A~%" connections))
                      (let ((ready-sockets (usocket:wait-for-input connections
@@ -283,8 +286,8 @@
                                        (message-2-udp-server)))
                                (t (progn
                                     (when *debug-p* (format t "udp msg~%"))
-                                    (udp-2-message-server socket)))))))
-                 (condition () (return-from :accepting))))
+                                    (udp-2-message-server socket))))))))
+;;                 (condition () (return-from :accepting))))
          ;; clean up
          (let* ((udp-socket-list (let* ((result nil))
                                    (maphash (lambda (sport socket)
