@@ -287,7 +287,10 @@
                                (t (progn
                                     (when *debug-p* (format t "udp msg~%"))
                                     (udp-2-message-server socket)))))))
-                 (condition () (return-from :accepting))))
+                 (usocket:connection-refused-error (e)
+                   (progn (format t "warning:~A~%" e)))
+                 (condition (e) (progn (format t "error:~A~%" e)
+                                       (return-from :accepting)))))
          ;; clean up
          (let* ((udp-socket-list (let* ((result nil))
                                    (maphash (lambda (sport socket)
