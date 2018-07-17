@@ -81,6 +81,7 @@
 (defun udp-2-message ()
   (multiple-value-bind (buffer size user-ip user-port)
       (usocket:socket-receive *client-udp-socket* nil 65535)
+    (when *debug-p* (format t "udp msg received, length:~A~%" size))
     (let* ((user-ip-string (format nil "~A.~A.~A.~A"
                                    (aref user-ip 0) (aref user-ip 1)
                                    (aref user-ip 2) (aref user-ip 3))))
