@@ -191,6 +191,7 @@
 ;;    extract the UDP socket and send.
 (defun message-2-udp-server ()
   (let ((line (read-line *server-stream*)))
+    (when *debug-p* (format t "tcp msg received:~A~%"))
     (multiple-value-bind (ip-string port buffer)
         (parse-message line)
       (let* ((user-id (calculate-user-id ip-string port));;(format nil "~A,~A" ip-string port))
@@ -222,11 +223,14 @@
           (usocket:socket-receive udp-socket nil 65535)
         (let* ((user-ip-string (format nil "~A.~A.~A.~A"
                                        (aref addr 0) (aref addr 1)
-                                       (aref addr 2) (aref addr 3))))
-          (format *server-stream* "~A,~A,~A~%"
-                  user-ip-string
-                  user-port
-                  (base64:usb8-array-to-base64-string (subseq buffer 0 size)))
+                                       (aref addr 2) (aref addr 3)))
+               (tcp-msg
+                (format nil "~A,~A,~A~%"
+                        user-ip-string
+                        user-port
+                        (base64:usb8-array-to-base64-string (subseq buffer 0 size)))))
+          (when *debug-p* (format t *server-stream*))
+          (format *server-stream* tcp-msg)
           (force-output *server-stream*))))))
 
 (defun clear-server-side ()
@@ -262,7 +266,9 @@
          (usocket:socket-accept *server-tcp-socket*))
        (format t "Connection accepted!~%")
        (defparameter *server-stream* (usocket:socket-stream *server-connection*))
-
+       (format t "Client: ~A:~A~%"
+               (usocket:get-peer-address *server-connection*)
+               (usocket:get-peer-port *server-connection*))
        (unwind-protect
             (loop
                (handler-case
