@@ -230,7 +230,7 @@
                         user-ip-string
                         user-port
                         (base64:usb8-array-to-base64-string (subseq buffer 0 size)))))
-          (when *debug-p* (format t "~A" tcp-msg))
+          (when *debug-p* (format t "send tcp msg:~A" tcp-msg))
           (write tcp-msg :stream *server-stream*)
           (force-output *server-stream*))))))
 
