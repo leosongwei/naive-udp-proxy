@@ -326,10 +326,9 @@
                                 ;; incoming client connection
                                 (let ((new-socket (usocket:socket-accept socket)))
                                   (push new-socket *tcp-list*)
-                                  (when *debug-p*
-                                    (progn (format t "Connection Accepted:~A:~A~%"
-                                                   (usocket:get-peer-address new-socket)
-                                                   (usocket:get-peer-port new-socket))))))
+                                  (progn (format t "Connection Accepted:~A:~A~%"
+                                                 (usocket:get-peer-address new-socket)
+                                                 (usocket:get-peer-port new-socket)))))
                                ;; incoming message
                                ((usocket:stream-usocket-p socket)
                                 (progn (when *debug-p* (format t "tcp msg~%"))
