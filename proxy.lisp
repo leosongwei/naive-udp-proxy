@@ -307,6 +307,7 @@
   (format t "server tcp: ~A:~A~%"
           (usocket:get-local-address *server-tcp-socket*)
           (usocket:get-local-port *server-tcp-socket*))
+
   (loop
      (block :accepting
        (defparameter *sport-user* (make-hash-table))
@@ -338,6 +339,9 @@
                                     (udp-2-message-server socket)))))))
                  (usocket:connection-refused-error (e)
                    (progn (format t "warning:~A~%" e)))
+                 (sb-sys:interactive-interrupt ()
+                   (progn (format t "Exit on keyboard interrupt~%")
+                          (sb-ext:exit)))
                  (condition (e) (progn (format t "error:~A~%" e)
                                        (return-from :accepting)))))
          ;; clean up
@@ -349,6 +353,8 @@
                                    result)))
            (dolist (udp-socket udp-socket-list)
              (usocket:socket-close udp-socket)))))))
+
+
 
 ;; (progn
 ;;   (clear-server-side)
