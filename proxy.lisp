@@ -142,9 +142,9 @@
            (clear-client-side)
            (client-side *server-tcp-ip* *server-tcp-port*
                         *client-udp-ip* *client-udp-port*))
-       (end-of-file (e)
+       (end-of-file ()
          (format t "EOF error, server may be closed now, reconnect in 5 sec..."))
-       ((or usocket:connection-reset-error usocket:connection-refused-error)
+       ((or usocket:connection-reset-error usocket:connection-refused-error) ()
            (format t "Connection failed, reconnect in 5 sec...")))
      (sleep 5)))
 
