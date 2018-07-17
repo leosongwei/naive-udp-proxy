@@ -274,7 +274,7 @@
                (usocket:get-peer-port *server-connection*))
        (unwind-protect
             (loop
-;;               (handler-case
+               (handler-case
                    (let ((connections (get-server-connections)))
                      (when *debug-p* (format t "~A~%" connections))
                      (let ((ready-sockets (usocket:wait-for-input connections
@@ -286,8 +286,8 @@
                                        (message-2-udp-server)))
                                (t (progn
                                     (when *debug-p* (format t "udp msg~%"))
-                                    (udp-2-message-server socket))))))))
-;;                 (condition () (return-from :accepting))))
+                                    (udp-2-message-server socket)))))))
+                 (condition () (return-from :accepting))))
          ;; clean up
          (let* ((udp-socket-list (let* ((result nil))
                                    (maphash (lambda (sport socket)
