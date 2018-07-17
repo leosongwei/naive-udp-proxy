@@ -191,7 +191,7 @@
 ;;    extract the UDP socket and send.
 (defun message-2-udp-server ()
   (let ((line (read-line *server-stream*)))
-    (when *debug-p* (format t "tcp msg received:~A~%"))
+    (when *debug-p* (format t "tcp msg received:~A~%" line))
     (multiple-value-bind (ip-string port buffer)
         (parse-message line)
       (let* ((user-id (calculate-user-id ip-string port));;(format nil "~A,~A" ip-string port))
